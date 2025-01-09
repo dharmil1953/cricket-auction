@@ -5,7 +5,6 @@ import { createClient } from "../auth-helpers/client";
 const client = createClient();
 
 interface UserSession {
-  id(arg0: string, id: any): { data: any; error: any; } | PromiseLike<{ data: any; error: any; }>;
   user: User | null;
   loading: boolean;
   error: string | null;

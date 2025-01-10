@@ -8,7 +8,7 @@ const PlayerForm = () => {
   const formik = useFormik({
     initialValues: {
       name: "",
-      image_url: "", // Make sure this matches with what FileUpload provides
+      image_url: "",
       base_price: "",
       batting_rating: "",
       bowling_rating: "",
@@ -39,7 +39,7 @@ const PlayerForm = () => {
     onSubmit: (values) => {
       const playerData = {
         ...values,
-        sold: values.sold ? true : false,
+        sold: Boolean(values.sold),
       };
       console.log("Player data submitted: ", playerData);
     },
@@ -198,7 +198,7 @@ const PlayerForm = () => {
               <input
                 type="radio"
                 name="sold"
-                value={true}
+                value="true"
                 onChange={formik.handleChange}
                 checked={formik.values.sold === true}
                 className="mr-2"
@@ -209,7 +209,7 @@ const PlayerForm = () => {
               <input
                 type="radio"
                 name="sold"
-                value={false}
+                value="false"
                 onChange={formik.handleChange}
                 checked={formik.values.sold === false}
                 className="mr-2"

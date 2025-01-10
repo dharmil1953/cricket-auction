@@ -16,6 +16,8 @@
     "next": "15.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-dropzone": "^14.3.5",
+    "react-hot-toast": "^2.5.1",
     "yup": "^1.6.1"
   },
   "devDependencies": {

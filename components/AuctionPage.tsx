@@ -15,12 +15,20 @@ interface Player {
   sold: boolean;
 }
 
+interface Bid {
+  buyer_name: string;
+  amount: number;
+  timestamp: Date;
+}
+
 const AuctionPage = () => {
   const [players, setPlayers] = useState<Player[]>([]);
-  const [playersList, setPlayersList] = useState<Player[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [bids, setBids] = useState<Bid[]>([]);
+  const [currentBid, setCurrentBid] = useState<number>(0);
+  const [isBidding, setIsBidding] = useState(false);
   const supabase = useSupabase();
   const user = useUser();
 
@@ -41,55 +49,69 @@ const AuctionPage = () => {
     fetchPlayers();
   }, [supabase]);
 
-  const handleBidding = async () => {
+  const handleBidding = async (incrementAmount: number) => {
     if (user && selectedPlayer) {
       try {
         const { data: currentData, error: fetchError } = await supabase
           .from("buyers")
-          .select("team_list, balance")
+          .select("*")
           .eq("id", user?.user?.id)
           .single();
 
         if (fetchError) throw new Error(fetchError.message);
 
-        if (currentData?.balance < selectedPlayer.base_price) {
+        const totalBidAmount = currentBid + incrementAmount;
+
+        if (currentData?.balance < totalBidAmount) {
           alert(
             "You don't have enough balance. Please add money to your account to buy the player."
           );
           return;
         }
 
-        const updatedTeamList = [
-          ...(currentData?.team_list || []),
-          selectedPlayer.id,
-        ];
+        // const updatedTeamList = [
+        //   ...(currentData?.team_list || []),
+        //   selectedPlayer.id,
+        // ];
 
-        const { data, error } = await supabase
-          .from("buyers")
-          .update({ team_list: updatedTeamList })
-          .eq("id", user?.user?.id);
+        // const { data, error } = await supabase
+        //   .from("buyers")
+        //   .update({ team_list: updatedTeamList })
+        //   .eq("id", user?.user?.id);
 
-        if (error) throw new Error(error.message);
-        console.log("Updated Team List:", data);
+        // if (error) throw new Error(error.message);
 
-        const { data: playerData, error: playerError } = await supabase
-          .from("players")
-          .update({ team_id: user?.user?.id, sold: true })
-          .eq("id", selectedPlayer.id);
+        // const { data: playerData, error: playerError } = await supabase
+        //   .from("players")
+        //   .update({ team_id: user?.user?.id, sold: true })
+        //   .eq("id", selectedPlayer.id);
 
-        const updatedBalance = currentData.balance - selectedPlayer.base_price;
+        const updatedBalance = currentData.balance - totalBidAmount;
 
         const { data: balanceData, error: balanceError } = await supabase
           .from("buyers")
           .update({ balance: updatedBalance })
           .eq("id", user?.user?.id);
+
+        setBids([
+          ...bids,
+          {
+            buyer_name: currentData.name || "Unknown Buyer",
+            amount: totalBidAmount,
+            timestamp: new Date(),
+          },
+        ]);
+        alert("Bid placed");
+        // setPlayers(
+        //   players.map((p) =>
+        //     p.id === selectedPlayer.id ? { ...p, sold: true } : p
+        //   )
+        // );
       } catch (err) {
         console.error("Failed to place bid:", err);
       }
-    } else {
-      console.log("User or Player is not selected.");
+      alert("Bid placed");
     }
-    alert("congratulations! Player is added to your team");
   };
 
   if (loading) {
@@ -104,152 +126,151 @@ const AuctionPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800">
-      <div className="bg-black bg-opacity-40 border-b border-gray-700">
-        <div className="container mx-auto py-4 px-6">
-          <div className="flex justify-between items-center text-white">
-            <div className="flex items-center space-x-8">
-              <h1 className="text-2xl font-bold text-yellow-500">
-                LIVE AUCTION
-              </h1>
-              <div className="flex space-x-4">
-                <div className="px-4 py-1 bg-green-500 bg-opacity-20 rounded-full border border-green-500">
-                  <span className="text-green-400">
-                    Available: {players.filter((p) => !p.sold).length}
-                  </span>
+      <div className="container mx-auto p-6 mb-8">
+        {selectedPlayer && (
+          <div className="bg-black bg-opacity-90 rounded-lg overflow-hidden">
+            <div className="grid grid-cols-3 gap-0">
+              <div className="p-6 border-r border-gray-800">
+                <h3 className="text-xl font-bold text-white mb-4">
+                  Current Bids
+                </h3>
+                <div className="space-y-3">
+                  {bids.map((bid, index) => (
+                    <div
+                      key={index}
+                      className="flex justify-between items-center text-sm"
+                    >
+                      <span className="text-gray-400">{bid.buyer_name}</span>
+                      <span className="text-yellow-500">
+                        ₹{bid.amount.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                  {bids.length === 0 && (
+                    <div className="text-gray-400">No bids placed yet.</div>
+                  )}
                 </div>
-                <div className="px-4 py-1 bg-blue-500 bg-opacity-20 rounded-full border border-blue-500">
-                  <span className="text-blue-400">
-                    Sold: {players.filter((p) => p.sold).length}
-                  </span>
+                <div className="mt-4 p-4 bg-gray-800 rounded-lg text-center">
+                  <h4 className="text-lg font-bold text-white">Total Bids</h4>
+                  <div className="text-yellow-500 font-bold text-2xl">
+                    ₹
+                    {bids
+                      .reduce((total, bid) => total + bid.amount, 0)
+                      .toLocaleString()}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="text-xl font-bold text-yellow-500">
-              Current Season 2024
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="container mx-auto p-6">
-        {selectedPlayer && (
-          <div className="container mx-auto p-6 mb-8 bg-black bg-opacity-50 rounded-2xl">
-            <h2 className="text-3xl font-bold text-white mb-4">Current Bid</h2>
-            <div className="flex items-center space-x-6">
-              <img
-                src={selectedPlayer.image_url}
-                alt={selectedPlayer.name}
-                className="w-32 h-32 object-cover rounded-full"
-              />
-              <div className="flex flex-col">
-                <h3 className="text-2xl font-bold text-white">
+              <div className="flex flex-col items-center justify-center p-6">
+                <div className="relative w-48 h-48">
+                  <img
+                    src={selectedPlayer.image_url}
+                    alt={selectedPlayer.name}
+                    className="w-48 h-48 rounded-full object-cover border-4 border-yellow-500"
+                  />
+                </div>
+                <h2 className="text-2xl font-bold text-white mt-4">
                   {selectedPlayer.name}
-                </h3>
-                <div className="text-xl text-yellow-500">
+                </h2>
+                <div className="text-3xl font-bold text-yellow-500 mt-2">
                   ₹{selectedPlayer.base_price.toLocaleString()}
                 </div>
+              </div>
+
+              <div className="p-6 border-l border-gray-800">
+                <div className="space-y-2">
+                  <div className="text-sm">
+                    <span className="text-gray-400">Batting Rating: </span>
+                    <span className="text-white">
+                      {selectedPlayer.batting_rating}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">Bowling Rating: </span>
+                    <span className="text-white">
+                      {selectedPlayer.bowling_rating}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">Status: </span>
+                    <span className="text-white">{selectedPlayer.status}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">Country: </span>
+                    <span className="text-white">IND</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">IPL 2024: </span>
+                    <span className="text-white">DC</span>
+                  </div>
+                </div>
                 <button
-                  className="mt-4 py-2 px-6 bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold rounded-lg hover:bg-yellow-700 transition duration-300"
-                  onClick={handleBidding}
+                  onClick={() => handleBidding(selectedPlayer.base_price)}
+                  className="w-full mt-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded"
                 >
-                  Place Bid
+                  PLACE BID
                 </button>
+                <div className="flex gap-5 text-black my-5 font-bold">
+                  <span
+                    className="bg-yellow-500 rounded-2xl p-2"
+                    onClick={() => handleBidding(5000)}
+                  >
+                    +5000 ₹
+                  </span>
+                  <span
+                    className="bg-yellow-500 rounded-2xl p-2"
+                    onClick={() => handleBidding(10000)}
+                  >
+                    +10000 ₹
+                  </span>
+                  <span
+                    className="bg-yellow-500 rounded-2xl p-2"
+                    onClick={() => handleBidding(20000)}
+                  >
+                    +25000 ₹
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         )}
+      </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {players.map((player, index) => (
-            <div
-              key={index}
-              className="group relative bg-black bg-opacity-50 rounded-xl overflow-hidden border border-gray-700 hover:border-yellow-500 transition-all duration-300 transform hover:-translate-y-1"
-            >
-              <div className="relative h-72">
+      {/* Grid showing available players */}
+      <div className="container mx-auto p-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+          {players
+            .filter((player) => !player.sold)
+            .map((player) => (
+              <div
+                key={player.id}
+                className="bg-black bg-opacity-50 p-4 rounded-lg shadow-lg text-center"
+              >
                 <img
                   src={player.image_url}
                   alt={player.name}
-                  className="w-full h-full object-cover"
+                  className="w-32 h-32 object-cover rounded-full mx-auto mb-4"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
-
-                <div className="absolute top-4 left-4">
-                  <span
-                    className={`px-3 py-1 rounded-full text-sm font-bold
-                    ${
-                      player.sold
-                        ? "bg-green-500 text-white"
-                        : "bg-gray-500 text-white"
-                    }`}
-                  >
-                    {player.sold ? "SOLD" : "AVAILABLE"}
-                  </span>
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  {player.name}
+                </h3>
+                <div className="text-yellow-500 font-bold mb-2">
+                  ₹{player.base_price.toLocaleString()}
                 </div>
-
-                <div className="absolute top-4 right-4">
-                  <span className="bg-yellow-500 text-black px-3 py-1 rounded-full text-sm font-bold">
-                    #{player.status}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-4 text-white">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-xl font-bold mb-1">{player.name}</h3>
-                    <div className="text-2xl font-bold text-yellow-500">
-                      ₹{player.base_price.toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-300">Batting Power</span>
-                      <span className="text-yellow-500 font-bold">
-                        {player.batting_rating}
-                      </span>
-                    </div>
-                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-yellow-500 to-yellow-300 rounded-full transition-all duration-300"
-                        style={{ width: `${player.batting_rating}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-300">Bowling Power</span>
-                      <span className="text-yellow-500 font-bold">
-                        {player.bowling_rating}
-                      </span>
-                    </div>
-                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-blue-500 to-blue-300 rounded-full transition-all duration-300"
-                        style={{ width: `${player.bowling_rating}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
                 <button
-                  className={`w-full mt-4 py-2 rounded-lg font-bold text-sm transition-all duration-300
-                    ${
-                      !player.sold
-                        ? "bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black"
-                        : "bg-gray-700 text-gray-400 cursor-not-allowed"
-                    }`}
-                  disabled={player.sold}
+                  className={`px-4 py-2 mt-2 text-white rounded-lg
+                  ${
+                    !player.sold
+                      ? "bg-yellow-500 hover:bg-yellow-600"
+                      : "bg-gray-500 cursor-not-allowed"
+                  }`}
                   onClick={() => setSelectedPlayer(player)}
+                  disabled={player.sold}
                 >
-                  {player.sold ? "SOLD" : "AVAILABLE"}
+                  {player.sold ? "SOLD" : "Place Bid"}
                 </button>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       </div>
     </div>

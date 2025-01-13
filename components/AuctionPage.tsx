@@ -13,113 +13,194 @@ interface Player {
   status: string;
   team_id: number;
   sold: boolean;
+  isBiddingRunning: boolean;
 }
 
-interface Bid {
-  buyer_name: string;
-  amount: number;
-  timestamp: Date;
+interface Buyer {
+  id: number;
+  name: string;
+  balance: number;
 }
 
-const AuctionPage = () => {
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+const BuyerAuctionPage = () => {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [bids, setBids] = useState<Bid[]>([]);
-  const [currentBid, setCurrentBid] = useState<number>(0);
-  const [isBidding, setIsBidding] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [timer, setTimer] = useState<number>(15);
+  const [bidAmount, setBidAmount] = useState<number>(0);
+  const [bids, setBids] = useState<string[]>([]);
+  const [winner, setWinner] = useState<Buyer | null>(null);
+  const [winningAmount, setWinningAmount] = useState<number>(0);
   const supabase = useSupabase();
-  const user = useUser();
+  const { user } = useUser();
 
   useEffect(() => {
-    const fetchPlayers = async () => {
-      if (supabase) {
-        try {
-          const { data, error } = await supabase.from("players").select("*");
-          if (error) throw new Error(error.message);
-          setPlayers(data);
-        } catch (err) {
-          setError("Failed to fetch players.");
-        } finally {
-          setLoading(false);
+    const fetchPlayer = async () => {
+      try {
+        if (supabase) {
+          const { data, error } = await supabase
+            .from("players")
+            .select("*")
+            .eq("isBiddingRunning", true)
+            .single();
+
+          if (error) {
+            console.log("Error fetching player:", error);
+          } else {
+            if (data) {
+              setSelectedPlayer(data as Player);
+              setBids(data?.bids || []);
+            } else {
+              setSelectedPlayer(null);
+            }
+          }
         }
+      } catch (err) {
+        console.error("Unexpected error fetching player:", err);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchPlayers();
+
+    fetchPlayer();
   }, [supabase]);
 
-  const handleBidding = async (incrementAmount: number) => {
-    if (user && selectedPlayer) {
+  useEffect(() => {
+    if (timer > 0) {
+      const interval = setInterval(() => setTimer((prev) => prev - 1), 1000);
+      return () => clearInterval(interval);
+    }
+
+    if (timer === 0 && bids.length > 0) {
+      declareWinner();
+    }
+  }, [timer, bids]);
+
+  const declareWinner = async () => {
+    if (!selectedPlayer || bids.length === 0) return;
+
+    const lastBidMessage = bids[bids.length - 1];
+    const [_, bidDetails] = lastBidMessage.split(": ");
+
+    try {
+      const { data: buyerData, error: buyerError } = await supabase
+        .from("buyers")
+        .select("*")
+        .eq("id", user?.id)
+        .single();
+
+      if (buyerError) throw new Error(buyerError.message);
+
+      const winningBuyer = buyerData as Buyer;
+
+      const updatedBalance =
+        winningBuyer.balance - winningAmount - selectedPlayer?.base_price;
+
+      const updatedTeamList = buyerData?.team_list || [];
+      if (!updatedTeamList.includes(selectedPlayer.id)) {
+        updatedTeamList.push(selectedPlayer.id);
+        await supabase
+          .from("buyers")
+          .update({ balance: updatedBalance, team_list: updatedTeamList })
+          .eq("id", winningBuyer.id);
+      }
+      await supabase
+        .from("players")
+        .update({
+          sold: true,
+          isBiddingRunning: false,
+          team_id: buyerData?.id,
+        })
+        .eq("id", selectedPlayer.id);
+
+      await supabase
+        .from("players_bid")
+        .update({
+          buyer_id: user?.id,
+          bids: [],
+          total_bid_amount: winningAmount + selectedPlayer?.base_price,
+        })
+        .eq("id", selectedPlayer.id);
+      setWinner(winningBuyer);
+      alert(
+        `${winningBuyer.name} has won the auction for ${
+          selectedPlayer.name
+        } at ₹${winningAmount + selectedPlayer?.base_price}!`
+      );
+    } catch (err) {
+      console.error("Error declaring winner:", err);
+      alert("An error occurred while declaring the winner.");
+    }
+  };
+
+  const handleBidding = async () => {
+    if (!bidAmount || bidAmount <= 0) {
+      alert("Please enter a valid bid amount.");
+      return;
+    }
+
+    const lastBidAmount =
+      bids.length > 0
+        ? parseInt(
+            bids[bids.length - 1].split(": ")[1].split(" ")[0].replace("₹", "")
+          )
+        : 0;
+
+    const totalBidAmount = selectedPlayer?.base_price + bidAmount;
+
+    if (totalBidAmount <= lastBidAmount) {
+      alert(`Your bid must be higher than ₹${lastBidAmount}.`);
+      return;
+    }
+
+    if (selectedPlayer) {
       try {
-        const { data: currentData, error: fetchError } = await supabase
+        const { data: currentBuyer, error: fetchError } = await supabase
           .from("buyers")
           .select("*")
-          .eq("id", user?.user?.id)
+          .eq("id", user?.id)
           .single();
 
         if (fetchError) throw new Error(fetchError.message);
 
-        const totalBidAmount = currentBid + incrementAmount;
+        const totalBidAmount = selectedPlayer.base_price + bidAmount;
+        setWinningAmount(bidAmount);
 
-        if (currentData?.balance < totalBidAmount) {
-          alert(
-            "You don't have enough balance. Please add money to your account to buy the player."
-          );
+        if (currentBuyer.balance < totalBidAmount) {
+          alert("Insufficient balance!");
           return;
         }
 
-        // const updatedTeamList = [
-        //   ...(currentData?.team_list || []),
-        //   selectedPlayer.id,
-        // ];
+        const newBidMessage = `Bid: ₹${totalBidAmount} by ${currentBuyer.name}`;
+        const updatedBids = [...bids, newBidMessage];
 
-        // const { data, error } = await supabase
-        //   .from("buyers")
-        //   .update({ team_list: updatedTeamList })
-        //   .eq("id", user?.user?.id);
+        await supabase
+          .from("players_bid")
+          .update({ bids: updatedBids })
+          .eq("id", selectedPlayer.id);
 
-        // if (error) throw new Error(error.message);
+        setBids(updatedBids);
+        setTimer(15);
 
-        // const { data: playerData, error: playerError } = await supabase
-        //   .from("players")
-        //   .update({ team_id: user?.user?.id, sold: true })
-        //   .eq("id", selectedPlayer.id);
-
-        const updatedBalance = currentData.balance - totalBidAmount;
-
-        const { data: balanceData, error: balanceError } = await supabase
-          .from("buyers")
-          .update({ balance: updatedBalance })
-          .eq("id", user?.user?.id);
-
-        setBids([
-          ...bids,
-          {
-            buyer_name: currentData.name || "Unknown Buyer",
-            amount: totalBidAmount,
-            timestamp: new Date(),
-          },
-        ]);
-        alert("Bid placed");
-        // setPlayers(
-        //   players.map((p) =>
-        //     p.id === selectedPlayer.id ? { ...p, sold: true } : p
-        //   )
-        // );
+        alert("Bid placed successfully!");
       } catch (err) {
         console.error("Failed to place bid:", err);
+        alert("An error occurred while placing the bid.");
       }
-      alert("Bid placed");
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 to-gray-800">
-        <div className="text-2xl font-bold text-white animate-pulse">
-          Loading Auction House...
-        </div>
+      <div className="text-center text-2xl mt-32 font-bold text-black">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!selectedPlayer) {
+    return (
+      <div className="text-center text-2xl mt-32 font-bold text-black">
+        No Auction is Currently Running.
       </div>
     );
   }
@@ -127,154 +208,64 @@ const AuctionPage = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800">
       <div className="container mx-auto p-6 mb-8">
-        {selectedPlayer && (
-          <div className="bg-black bg-opacity-90 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-3 gap-0">
-              <div className="p-6 border-r border-gray-800">
-                <h3 className="text-xl font-bold text-white mb-4">
-                  Current Bids
-                </h3>
-                <div className="space-y-3">
-                  {bids.map((bid, index) => (
-                    <div
-                      key={index}
-                      className="flex justify-between items-center text-sm"
-                    >
-                      <span className="text-gray-400">{bid.buyer_name}</span>
-                      <span className="text-yellow-500">
-                        ₹{bid.amount.toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
-                  {bids.length === 0 && (
-                    <div className="text-gray-400">No bids placed yet.</div>
-                  )}
-                </div>
-                <div className="mt-4 p-4 bg-gray-800 rounded-lg text-center">
-                  <h4 className="text-lg font-bold text-white">Total Bids</h4>
-                  <div className="text-yellow-500 font-bold text-2xl">
-                    ₹
-                    {bids
-                      .reduce((total, bid) => total + bid.amount, 0)
-                      .toLocaleString()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col items-center justify-center p-6">
-                <div className="relative w-48 h-48">
-                  <img
-                    src={selectedPlayer.image_url}
-                    alt={selectedPlayer.name}
-                    className="w-48 h-48 rounded-full object-cover border-4 border-yellow-500"
-                  />
-                </div>
-                <h2 className="text-2xl font-bold text-white mt-4">
-                  {selectedPlayer.name}
-                </h2>
-                <div className="text-3xl font-bold text-yellow-500 mt-2">
-                  ₹{selectedPlayer.base_price.toLocaleString()}
-                </div>
-              </div>
-
-              <div className="p-6 border-l border-gray-800">
-                <div className="space-y-2">
-                  <div className="text-sm">
-                    <span className="text-gray-400">Batting Rating: </span>
-                    <span className="text-white">
-                      {selectedPlayer.batting_rating}
-                    </span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-400">Bowling Rating: </span>
-                    <span className="text-white">
-                      {selectedPlayer.bowling_rating}
-                    </span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-400">Status: </span>
-                    <span className="text-white">{selectedPlayer.status}</span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-400">Country: </span>
-                    <span className="text-white">IND</span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-400">IPL 2024: </span>
-                    <span className="text-white">DC</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleBidding(selectedPlayer.base_price)}
-                  className="w-full mt-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded"
-                >
-                  PLACE BID
-                </button>
-                <div className="flex gap-5 text-black my-5 font-bold">
-                  <span
-                    className="bg-yellow-500 rounded-2xl p-2"
-                    onClick={() => handleBidding(5000)}
-                  >
-                    +5000 ₹
-                  </span>
-                  <span
-                    className="bg-yellow-500 rounded-2xl p-2"
-                    onClick={() => handleBidding(10000)}
-                  >
-                    +10000 ₹
-                  </span>
-                  <span
-                    className="bg-yellow-500 rounded-2xl p-2"
-                    onClick={() => handleBidding(20000)}
-                  >
-                    +25000 ₹
-                  </span>
-                </div>
-              </div>
+        <div className="bg-black bg-opacity-90 rounded-lg overflow-hidden">
+          <div className="text-center p-4">
+            <div className="text-2xl font-bold text-white">
+              Auction for Player: {selectedPlayer.name}
+            </div>
+            <div className="text-lg text-yellow-400">
+              Time Remaining: {timer}s
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Grid showing available players */}
-      <div className="container mx-auto p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-          {players
-            .filter((player) => !player.sold)
-            .map((player) => (
-              <div
-                key={player.id}
-                className="bg-black bg-opacity-50 p-4 rounded-lg shadow-lg text-center"
-              >
-                <img
-                  src={player.image_url}
-                  alt={player.name}
-                  className="w-32 h-32 object-cover rounded-full mx-auto mb-4"
-                />
-                <h3 className="text-lg font-semibold text-white mb-2">
-                  {player.name}
-                </h3>
-                <div className="text-yellow-500 font-bold mb-2">
-                  ₹{player.base_price.toLocaleString()}
-                </div>
-                <button
-                  className={`px-4 py-2 mt-2 text-white rounded-lg
-                  ${
-                    !player.sold
-                      ? "bg-yellow-500 hover:bg-yellow-600"
-                      : "bg-gray-500 cursor-not-allowed"
-                  }`}
-                  onClick={() => setSelectedPlayer(player)}
-                  disabled={player.sold}
-                >
-                  {player.sold ? "SOLD" : "Place Bid"}
-                </button>
+          <div className="grid grid-cols-3 gap-0">
+            <div className="p-6 border-r border-gray-800">
+              <h3 className="text-xl font-bold text-white mb-4">
+                Player Details
+              </h3>
+              <div className="text-white">
+                <div>Name: {selectedPlayer.name}</div>
+                <div>Base Price: ₹{selectedPlayer.base_price}</div>
+                <div>Status: {selectedPlayer.sold ? "Sold" : "Available"}</div>
               </div>
-            ))}
+            </div>
+
+            <div className="flex flex-col items-center justify-center p-6">
+              <input
+                type="number"
+                placeholder="Enter bid"
+                value={bidAmount}
+                onChange={(e) => setBidAmount(Number(e.target.value))}
+                className="mt-4 p-2 rounded text-black"
+              />
+              <button
+                onClick={handleBidding}
+                className="mt-4 px-6 py-2 bg-yellow-500 text-black font-bold rounded"
+              >
+                Place Bid
+              </button>
+            </div>
+
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-white mb-4">Bids</h3>
+              <ul className="text-white">
+                {bids.map((bid, index) => (
+                  <li key={index} className="mb-2">
+                    {bid}
+                  </li>
+                ))}
+              </ul>
+              {winner && (
+                <div className="mt-4 text-yellow-400 font-bold">
+                  {winner.name} won the player for ₹
+                  {winningAmount + selectedPlayer?.base_price}.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export default AuctionPage;
+export default BuyerAuctionPage;

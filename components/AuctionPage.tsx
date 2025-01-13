@@ -65,6 +65,54 @@ const BuyerAuctionPage = () => {
   }, [supabase]);
 
   useEffect(() => {
+    const fetchBids = async () => {
+      if (supabase && selectedPlayer?.id) {
+        const channel = supabase.channel(`players_bid:${selectedPlayer.id}`);
+        channel
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "players_bid",
+            },
+            (payload: { new: { bids: string[] } }) => {
+              const newBids = payload.new.bids;
+              setBids(newBids);
+            }
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "UPDATE",
+              schema: "public",
+              table: "players_bid",
+            },
+            (payload: { new: { bids: string[] } }) => {
+              const newBids = payload.new.bids;
+              setBids(newBids);
+            }
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "DELETE",
+              schema: "public",
+              table: "players_bid",
+            },
+            () => {}
+          )
+          .subscribe();
+
+        return () => {
+          channel.unsubscribe();
+        };
+      }
+    };
+    fetchBids();
+  }, [supabase, selectedPlayer?.id]);
+
+  useEffect(() => {
     if (timer > 0) {
       const interval = setInterval(() => setTimer((prev) => prev - 1), 1000);
       return () => clearInterval(interval);
@@ -145,7 +193,9 @@ const BuyerAuctionPage = () => {
           )
         : 0;
 
-    const totalBidAmount = selectedPlayer?.base_price + bidAmount;
+    const totalBidAmount = selectedPlayer
+      ? selectedPlayer?.base_price + bidAmount
+      : 0;
 
     if (totalBidAmount <= lastBidAmount) {
       alert(`Your bid must be higher than ₹${lastBidAmount}.`);

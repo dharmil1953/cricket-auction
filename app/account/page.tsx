@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import BalanceForm from "@/components/BalanceForm";
 import Navbar from "@/components/Navbar";
-import PlayerList from "@/components/TeamPlayersList";
-import { Landmark } from "lucide-react";
+import { Landmark, UserSearch } from "lucide-react";
 import useUser from "@/utils/hooks/useUser";
 import useSupabase from "@/utils/hooks/useSupabase";
 import { buyersProps } from "@/utils/types";
@@ -52,10 +51,20 @@ export default function AuctionForm() {
       <Navbar />
       <div className="w-full bg-gray-100 flex flex-col sm:flex-row justify-between items-center px-5 py-4 space-y-3 sm:space-y-0 sm:space-x-4">
         <div className="flex items-center space-x-3">
-          <Landmark />
-          <span className="text-gray-800 font-semibold">
-            Current Balance: {buyersData?.balance}
-          </span>
+          <div className="flex-col">
+            <div className="flex gap-2">
+              <UserSearch />
+              <span className="text-gray-800 font-semibold">
+                Name: {buyersData?.name}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Landmark />
+              <span className="text-gray-800 font-semibold">
+                Current Balance: {buyersData?.balance}
+              </span>
+            </div>
+          </div>
         </div>
 
         <span
@@ -69,9 +78,7 @@ export default function AuctionForm() {
       {showBalanceForm ? (
         <BalanceForm />
       ) : (
-        <div className="text-center text-lg mt-5 bg-gray-100 ">
-          
-        </div>
+        <div className="text-center text-lg mt-5 bg-gray-100 "></div>
       )}
     </>
   );

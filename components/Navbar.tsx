@@ -3,13 +3,30 @@ import useSupabase from "@/utils/hooks/useSupabase";
 import useUser from "@/utils/hooks/useUser";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 const Navbar = () => {
   const supabase = useSupabase();
   const router = useRouter();
-  const user = useUser();
+
   const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    const fetchSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (data) {
+          setSession(data);
+        } else {
+          console.error(error);
+        }
+      } catch (err) {
+        console.log("Error fetching session:", err);
+      }
+    };
+
+    fetchSession();
+  }, [supabase]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -32,7 +49,7 @@ const Navbar = () => {
             </button>
           ) : (
             <Link
-              href=""
+              href="/sign-in"
               className="px-6 py-2 rounded-full bg-gradient-to-r from-yellow-500 to-yellow-600 
                 hover:from-yellow-600 hover:to-yellow-700 text-black font-bold transition-all 
                 duration-300 transform hover:scale-105"

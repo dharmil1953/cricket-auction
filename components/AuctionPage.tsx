@@ -22,6 +22,13 @@ interface Buyer {
   balance: number;
 }
 
+interface AuctionResult {
+  player_id: number;
+  winner_id: number;
+  winner_name: string;
+  final_amount: number;
+}
+
 const BuyerAuctionPage = () => {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -48,7 +55,13 @@ const BuyerAuctionPage = () => {
           } else {
             if (data) {
               setSelectedPlayer(data as Player);
-              setBids(data?.bids || []);
+              const { data: bidData } = await supabase
+                .from("players_bid")
+                .select("bids")
+                .eq("id", data.id)
+                .single();
+
+              setBids(bidData?.bids || []);
             } else {
               setSelectedPlayer(null);
             }
@@ -63,6 +76,39 @@ const BuyerAuctionPage = () => {
 
     fetchPlayer();
   }, [supabase]);
+
+  useEffect(() => {
+    if (!selectedPlayer?.id) return;
+
+    if (selectedPlayer?.id) {
+      const channel = supabase.channel(`players_update:${selectedPlayer.id}`);
+      console.log("channel");
+
+      channel
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "players",
+            filter: `id=eq.${selectedPlayer.id}`,
+          },
+          (payload: { new: Player }) => {
+            const updatedPlayer = payload.new;
+            if (
+              updatedPlayer.isBiddingRunning !== selectedPlayer.isBiddingRunning
+            ) {
+              setSelectedPlayer(updatedPlayer);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        channel.unsubscribe();
+      };
+    }
+  }, [supabase, selectedPlayer?.id]);
 
   useEffect(() => {
     const fetchBids = async () => {
@@ -168,6 +214,7 @@ const BuyerAuctionPage = () => {
           total_bid_amount: winningAmount + selectedPlayer?.base_price,
         })
         .eq("id", selectedPlayer.id);
+
       setWinner(winningBuyer);
       alert(
         `${winningBuyer.name} has won the auction for ${
@@ -261,57 +308,80 @@ const BuyerAuctionPage = () => {
         <div className="bg-black bg-opacity-90 rounded-lg overflow-hidden">
           <div className="text-center p-4">
             <div className="text-2xl font-bold text-white">
-              Auction for Player: {selectedPlayer.name}
+              {selectedPlayer
+                ? `Auction for Player: ${selectedPlayer.name}`
+                : "Waiting for auction to start..."}
             </div>
-            <div className="text-lg text-yellow-400">
-              Time Remaining: {timer}s
-            </div>
+            {selectedPlayer && (
+              <div className="text-lg text-yellow-400">
+                Time Remaining: {timer}s
+              </div>
+            )}
           </div>
-          <div className="grid grid-cols-3 gap-0">
-            <div className="p-6 border-r border-gray-800">
-              <h3 className="text-xl font-bold text-white mb-4">
-                Player Details
-              </h3>
-              <div className="text-white">
-                <div>Name: {selectedPlayer.name}</div>
-                <div>Base Price: ₹{selectedPlayer.base_price}</div>
-                <div>Status: {selectedPlayer.sold ? "Sold" : "Available"}</div>
+
+          {selectedPlayer && (
+            <div className="grid grid-cols-3 gap-0">
+              <div className="p-6 border-r border-gray-800">
+                <h3 className="text-xl font-bold text-white mb-4">
+                  Player Details
+                </h3>
+                <div className="text-white">
+                  <div>Name: {selectedPlayer.name}</div>
+                  <div>Base Price: ₹{selectedPlayer.base_price}</div>
+                  <div>
+                    Status: {selectedPlayer.sold ? "Sold" : "Available"}
+                  </div>
+                  <div>Batting Rating: {selectedPlayer.batting_rating}</div>
+                  <div>Bowling Rating: {selectedPlayer.bowling_rating}</div>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center justify-center p-6">
+                <input
+                  type="number"
+                  placeholder="Enter bid amount"
+                  value={bidAmount}
+                  onChange={(e) => setBidAmount(Number(e.target.value))}
+                  className="mt-4 p-2 rounded text-black w-full max-w-xs"
+                  disabled={selectedPlayer.sold}
+                />
+                <button
+                  onClick={handleBidding}
+                  className={`mt-4 px-6 py-2 font-bold rounded w-full max-w-xs
+                    ${
+                      selectedPlayer.sold
+                        ? "bg-gray-500 cursor-not-allowed"
+                        : "bg-yellow-500 hover:bg-yellow-600"
+                    } 
+                    text-black`}
+                  disabled={selectedPlayer.sold}
+                >
+                  Place Bid
+                </button>
+              </div>
+
+              <div className="p-6 border-l border-gray-800">
+                <h3 className="text-xl font-bold text-white mb-4">
+                  Bid History
+                </h3>
+                <div className="max-h-64 overflow-y-auto">
+                  <ul className="text-white space-y-2">
+                    {bids.map((bid, index) => (
+                      <li key={index} className="bg-gray-800 p-2 rounded">
+                        {bid}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {winner && (
+                  <div className="mt-4 p-4 bg-yellow-500 text-black rounded-lg font-bold">
+                    🏆 {winner.name} won {selectedPlayer.name} for ₹
+                    {winningAmount + selectedPlayer.base_price}!
+                  </div>
+                )}
               </div>
             </div>
-
-            <div className="flex flex-col items-center justify-center p-6">
-              <input
-                type="number"
-                placeholder="Enter bid"
-                value={bidAmount}
-                onChange={(e) => setBidAmount(Number(e.target.value))}
-                className="mt-4 p-2 rounded text-black"
-              />
-              <button
-                onClick={handleBidding}
-                className="mt-4 px-6 py-2 bg-yellow-500 text-black font-bold rounded"
-              >
-                Place Bid
-              </button>
-            </div>
-
-            <div className="p-6">
-              <h3 className="text-xl font-bold text-white mb-4">Bids</h3>
-              <ul className="text-white">
-                {bids.map((bid, index) => (
-                  <li key={index} className="mb-2">
-                    {bid}
-                  </li>
-                ))}
-              </ul>
-              {winner && (
-                <div className="mt-4 text-yellow-400 font-bold">
-                  {winner.name} won the player for ₹
-                  {winningAmount + selectedPlayer?.base_price}.
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
